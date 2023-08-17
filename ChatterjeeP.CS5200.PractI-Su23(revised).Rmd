@@ -1,0 +1,346 @@
+---
+title: "Practicum I CS5200"
+author field: Pratik Chatterjee
+date: ' Summer Full 2023'
+output:
+  html_document:
+    df_print: paged
+---
+
+# Pratik Chatterjee
+## chatterjee.pr@northeastern.edu
+
+
+# Settings freemysqlhosting.net (max 5MB)
+# Specify the database connection details
+## Connect to database
+```{r DatabaseCreation}
+library(RMySQL)
+library(DBI)
+#Settings freemysqlhosting.net (max 5MB)
+db_name_fh <- "sql7628203"
+db_user_fh <- "sql7628203"
+db_host_fh <- "sql7.freemysqlhosting.net"
+db_pwd_fh <- "NPqraIa1dg"
+db_port_fh <- 3306
+
+# 3. Connect to remote server database
+mydb.fh <- dbConnect(RMySQL::MySQL(), user = db_user_fh, password = db_pwd_fh, dbname = db_name_fh, host = db_host_fh, port = db_port_fh)
+
+mydb <- mydb.fh
+```
+
+## Create Database
+## Drop existing tables if they exist
+```{sql dropstrikes,connection=mydb}
+DROP TABLE IF EXISTS strikes
+```
+
+```{sql dropflights,connection=mydb}
+DROP TABLE IF EXISTS flights
+```
+
+```{sql dropairports,connection=mydb}
+DROP TABLE IF EXISTS airports
+```
+
+```{sql dropconditions,connection=mydb}
+DROP TABLE IF EXISTS conditions
+```
+
+# Create the airports table
+```{sql airporttable, connection=mydb}
+# Create the airports table
+CREATE TABLE airports (
+                 aid INT PRIMARY KEY,
+                 airportState TEXT,
+                 airportCode TEXT
+               );
+```
+
+# Create the conditions table
+```{sql conditionstable, connection=mydb}
+# Create the conditions table
+CREATE TABLE conditions (
+                 cid INT PRIMARY KEY,
+                 sky_condition TEXT,
+                 explanation TEXT
+               );
+```
+
+# Create the flights table
+```{sql flightstable, connection=mydb}
+# Create the flights table
+CREATE TABLE flights (
+                 fid INT PRIMARY KEY,
+                 date DATE,
+                 origin INT,
+                 airline TEXT,
+                 aircraft TEXT,
+                 altitude INT,
+                 heavy BOOLEAN,
+                 FOREIGN KEY (origin) REFERENCES airports (aid)
+               );
+
+```
+
+# Create the strikes table
+```{sql strikestable, connection=mydb}
+# Create the strikes table
+CREATE TABLE strikes (
+                 sid INT PRIMARY KEY,
+                 fid INT,
+                 numbirds INT,
+                 impact TEXT,
+                 damage BOOLEAN,
+                 altitude INT,
+                 conditions INT,
+                 FOREIGN KEY (fid) REFERENCES flights (fid),
+                 FOREIGN KEY (conditions) REFERENCES conditions (cid)
+               );
+```
+
+# csv file
+# Specify the path and name of the CSV file containing the bird strike data
+```{r importCSVfile}
+# csv file
+csv_file <- "BirdStrikesData-V2.csv"
+```
+
+# read csv file
+# Read the CSV file into a data frame
+```{r CSVfiletodataframe}
+# read csv file
+bds.raw <- read.csv(file = csv_file, header = T, stringsAsFactors = F)
+```
+
+```{r dateformatconversion}
+# Convert the flight_date column to date format
+bds.raw$flight_date <- as.Date(bds.raw$flight_date, format = "%m/%d/%Y")
+```
+
+
+```{r first10data}
+names(bds.raw) <- c('rid','aircraft','airport',	'model','wildlife_struck',	'impact',	'flight_date',	'damage',	'airline', 'origin','flight_phase',	'remains_collected_flag',	'Remarks','wildlife_size',	'sky_conditions', 'species','pilot_warned_flag', 'altitude_ft',	'heavy_flag')
+
+head(bds.raw, 10)
+
+```
+
+#Create airports df for MySQL db
+```{r airportsdataframe}
+aid <- NA
+airportCode <- NA
+airportState <- ifelse(is.na(bds.raw$origin), "Unknown", bds.raw$origin)
+airports_df <- data.frame(aid, airportCode, airportState)
+```
+
+#Assign synthetic key values for airports table
+```{r synthetickeyvalueairport}
+aid <- row.names(airports_df)
+airports_df <- data.frame(aid, airportCode, airportState)
+```
+
+# Prepare the airports data frame for insertion into the MySQL database
+```{r airportinsertion}
+dbWriteTable(mydb, "airports", airports_df, row.names = FALSE, append = TRUE)
+
+```
+```{sql connection=mydb}
+SELECT * FROM airports LIMIT 10;
+```
+#Create conditions df for MySQL db
+```{r conditionsdataframe}
+cid <- NA
+sky_condition <- bds.raw$sky_conditions 
+explanation <- NA
+conditions_df <- data.frame(cid, sky_condition, explanation)
+```
+
+#Assign synthetic key values for conditions table
+```{r synthetickeyvalueconditions}
+cid <- row.names(conditions_df)
+conditions_df <- data.frame(cid, sky_condition, explanation)
+```
+
+# Prepare the conditions data frame for insertion into the MySQL database
+```{r conditionsinsertion}
+dbWriteTable(mydb, "conditions", conditions_df, row.names = FALSE, append = TRUE)
+```
+```{sql connection=mydb}
+SELECT * FROM conditions LIMIT 10;
+```
+
+#Create flights df for MySQL db
+```{r flightsdataframe}
+fid <- bds.raw$rid
+date <- as.Date(bds.raw$flight_date, format = "%m/%d/%Y") 
+origin <- airports_df$aid
+airline <- bds.raw$airline
+aircraft <- bds.raw$aircraft
+altitude <- bds.raw$altitude_ft
+heavy <- bds.raw$heavy_flag
+flights_df <- data.frame(fid, date, origin, airline, aircraft, altitude, heavy)
+```
+
+# Prepare the flights data frame for insertion into the MySQL database
+```{r flightsinsertion}
+dbWriteTable(mydb, "flights", flights_df, row.names = FALSE, append = TRUE)
+```
+```{sql connection=mydb}
+SELECT * FROM flights LIMIT 10;
+```
+
+#Create strikes df for MySQL db
+```{r strikessdataframe}
+sid <- NA
+fid <- bds.raw$rid
+altitude <- bds.raw$altitude_ft
+conditions <- conditions_df$cid
+numbirds <- bds.raw$wildlife_struck
+damage <- bds.raw$damage
+impact <- bds.raw$impact
+strikes_df <- data.frame(sid, fid, altitude, conditions, numbirds, damage, impact)
+```
+
+#Assign synthetic key values for strikes table
+```{r synthetickeyvaluestrikes}
+sid <- row.names(strikes_df)
+strikes_df <- data.frame(sid, fid, altitude, conditions, numbirds, damage, impact)
+```
+
+# Prepare the strikes data frame for insertion into the MySQL database
+```{r strikesinsertion}
+dbWriteTable(mydb, "strikes", strikes_df, row.names = FALSE, append = TRUE)
+```
+
+```{sql connection=mydb}
+SELECT * FROM strikes LIMIT 10;
+```
+
+## 8.Query to find the top 10 states with the greatest number of bird strike incidents
+```{sql Task8SQLQuery, connection=mydb}
+SELECT airportState AS state, COUNT(*) AS incidents
+FROM strikes
+JOIN flights ON strikes.fid = flights.fid
+JOIN airports ON flights.origin = airports.aid
+GROUP BY airportState
+ORDER BY incidents DESC
+LIMIT 10;
+```
+
+## 9.Query to find the airlines with an above average number of bird strike incidents
+```{sql Task9SQLQuery, connection=mydb}
+SELECT airline, COUNT(*) AS incidents
+FROM strikes
+JOIN flights ON strikes.fid = flights.fid
+GROUP BY airline
+HAVING COUNT(*) > (SELECT AVG(incident_count) FROM (SELECT COUNT(*) AS incident_count FROM strikes JOIN flights ON strikes.fid = flights.fid GROUP BY airline) AS subquery)
+ORDER BY incidents DESC;
+```
+
+
+## 10.Query to find the (total) number of birds that struck aircraft by month
+```{r Task10SQLQuery}
+query<-"SELECT EXTRACT(MONTH FROM flights.date) AS month, SUM(numbirds) AS total_bird_strikes
+FROM strikes
+JOIN flights ON strikes.fid = flights.fid
+WHERE 
+numbirds IS NOT NULL AND flights.date IS NOT NULL
+GROUP BY month
+ORDER BY month"
+        
+result<- dbGetQuery(mydb,query)
+head(result, 6)
+```
+## 11.Plot a column chart to visualize the number of birds struck by aircraft monthly
+```{r Task11SQLQuery}
+# Set the plot area size
+par(mar = c(5, 4, 4, 4))
+
+# Define the desired y-axis limit
+ylim <- c(0, 14000)
+
+# Create the column chart with better spacing and font size
+barplot(result$total_bird_strikes, names.arg = result$month, horiz = FALSE,
+        col = "blue", main = "No. of Birds Struck by Aircraft Monthwise",
+        xlab = "Months", ylab = "No. of Birds", cex.names = 0.7, ylim = ylim)
+
+# Add data labels with adjusted position and font size
+text(x = seq_along(result$total_bird_strikes), y = result$total_bird_strikes,
+     labels = result$total_bird_strikes, pos = 3, cex = 0.8)
+
+# Adjust the plot margins
+par(mar = c(5, 4, 4, 4) + 1)
+```
+```{sql dropprocedure, connection=mydb}
+DROP PROCEDURE IF EXISTS InsertStrike;
+
+```
+
+## 12.Create a stored procedure to add a strike record to the database
+```{sql Task12StoredProcedurecreation, connection=mydb}
+CREATE PROCEDURE InsertStrike(
+    IN new_airportState TEXT,
+    IN new_airportCode TEXT,
+    IN new_airline TEXT,
+    IN new_aircraft TEXT,
+    IN new_flightDate DATE,
+    IN new_skyCondition TEXT,
+    IN new_explanation TEXT,
+    IN new_numbirds INT,
+    IN new_impact TEXT,
+    IN new_damage BOOLEAN,
+    IN new_altitude INT
+)
+BEGIN
+    DECLARE new_aid INT;
+    DECLARE new_fid INT;
+    DECLARE new_cid INT;
+    
+    -- Check if the airport already exists
+    SELECT aid INTO new_aid FROM airports WHERE airportCode = new_airportCode;
+    
+    IF new_aid IS NULL THEN
+        -- Insert new airport if it doesn't exist
+        INSERT INTO airports (airportState, airportCode) VALUES (new_airportState, new_airportCode);
+        SET new_aid = LAST_INSERT_ID();
+    END IF;
+    
+    -- Insert new flight
+    INSERT INTO flights (date, origin, airline, aircraft, altitude) 
+    VALUES (new_flightDate, new_aid, new_airline, new_aircraft, new_altitude);
+    SET new_fid = LAST_INSERT_ID();
+    
+    -- Check if the conditions already exist
+    SELECT cid INTO new_cid FROM conditions WHERE sky_condition = new_skyCondition AND explanation = new_explanation;
+    
+    IF new_cid IS NULL THEN
+        -- Insert new conditions if they don't exist
+        INSERT INTO conditions (sky_condition, explanation) VALUES (new_skyCondition, new_explanation);
+        SET new_cid = LAST_INSERT_ID();
+    END IF;
+    
+    -- Insert new strike
+    INSERT INTO strikes (fid, numbirds, impact, damage, altitude, conditions) 
+    VALUES (new_fid, new_numbirds, new_impact, new_damage, new_altitude, new_cid);
+    
+    SELECT * FROM strikes WHERE sid = LAST_INSERT_ID();
+END 
+```
+
+
+#Call the stored procedure and insert a new strike
+##CALL InsertStrike(1, 5, 'Engine Damage', TRUE, 10000, 1);
+```{sql storedprocinsertion, connection=mydb}
+#Call the stored procedure and insert a new strike
+CALL InsertStrike('New York', 'JFK', 'Delta Airlines', 'Boeing 737', '2023-06-22', 'Clear', 'Clear sky conditions', 3, 'Engine Damage', TRUE, 10000);
+```
+
+
+```{r Disconnectingdatabase}
+dbDisconnect(mydb)
+```
+
+
+
